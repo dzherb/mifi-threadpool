@@ -1,3 +1,5 @@
+package pool;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -5,8 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Logger;
 
-public class ThreadPool implements CustomExecutor {
-    private static final Logger logger = Logger.getLogger(ThreadPool.class.getName());
+public class CustomThreadPool implements CustomExecutor {
+    private static final Logger logger = Logger.getLogger(CustomThreadPool.class.getName());
 
     private final int corePoolSize;
     private final int maxPoolSize;
@@ -27,7 +29,7 @@ public class ThreadPool implements CustomExecutor {
     private final AtomicInteger activeThreads = new AtomicInteger(0);
     private final AtomicInteger nextQueueIndex = new AtomicInteger(0);
 
-    public ThreadPool(
+    public CustomThreadPool(
             int corePoolSize,
             int maxPoolSize,
             long keepAliveTime,
