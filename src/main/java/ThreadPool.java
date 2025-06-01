@@ -14,6 +14,7 @@ public class ThreadPool implements CustomExecutor {
     private final TimeUnit timeUnit;
     private final int queueSize;
     private final int minSpareThreads;
+    private boolean areWorkersInitialized = false;
 
     private final List<Worker> workers;
     private final List<BlockingQueue<Runnable>> queues;
@@ -35,12 +36,12 @@ public class ThreadPool implements CustomExecutor {
             int minSpareThreads
     ) {
         if (
-            corePoolSize < 0
-            || maxPoolSize <= 0
-            || maxPoolSize < corePoolSize
-            || keepAliveTime < 0
-            || queueSize <= 0
-            || minSpareThreads < 0
+                corePoolSize < 0
+                        || maxPoolSize <= 0
+                        || maxPoolSize < corePoolSize
+                        || keepAliveTime < 0
+                        || queueSize <= 0
+                        || minSpareThreads < 0
         ) {
             throw new IllegalArgumentException("Invalid thread pool parameters");
         }
@@ -58,22 +59,22 @@ public class ThreadPool implements CustomExecutor {
         rejectionHandler = new LoggingRejectionHandler(logger);
     }
 
-    class Worker implements Runnable {
+    private class Worker implements Runnable {
         private final BlockingQueue<Runnable> queue;
-        private volatile boolean running = true;
+        private volatile boolean isRunning = true;
 
-        public Worker(BlockingQueue<Runnable> queue) {
+        private Worker(BlockingQueue<Runnable> queue) {
             this.queue = queue;
         }
 
-        public void interrupt() {
-            running = false;
+        private void interrupt() {
+            isRunning = false;
             Thread.currentThread().interrupt();
         }
 
         @Override
         public void run() {
-            while (running) {
+            while (isRunning) {
                 try {
                     Runnable task = queue.poll(keepAliveTime, timeUnit);
                     if (task != null) {
@@ -83,22 +84,54 @@ public class ThreadPool implements CustomExecutor {
                         } finally {
                             activeThreads.decrementAndGet();
                         }
+                        if (!isShutdown && shouldAddSpareThread()) {
+                            mainLock.lock();
+                            try {
+                                if (currentPoolSize.get() < maxPoolSize) {
+                                    createAndStartWorker();
+                                    logger.info("Spare thread created to maintain minSpareThreads");
+                                }
+                            } finally {
+                                mainLock.unlock();
+                            }
+                        }
+                    } else if (isShutdown && queue.isEmpty()) {
+                        isRunning = false;
+                        break;
                     } else if (currentPoolSize.get() > corePoolSize) {
                         // If no task received, and we have more than core threads,
                         // this thread should terminate
                         break;
                     }
-                } catch (InterruptedException e) {
-                    if (!running) {
-                        break;
+                } catch (Exception e) {
+                    if (!(e instanceof InterruptedException)) {
+                        logger.warning("Unexpected exception while processing tasks: " + e.getMessage());
                     }
+                    isRunning = false;
+                    break;
                 }
             }
 
-            // Cleanup
-            currentPoolSize.decrementAndGet();
-            workers.remove(this);
+            cleanup();
             logger.info("Worker thread terminated. Current pool size: " + currentPoolSize.get());
+        }
+
+        private void cleanup() {
+            mainLock.lock();
+            try {
+                currentPoolSize.decrementAndGet();
+                workers.remove(this);
+                queues.remove(queue);
+            } finally {
+                mainLock.unlock();
+            }
+        }
+
+        private boolean shouldAddSpareThread() {
+            int busy = activeThreads.get();
+            int total = currentPoolSize.get();
+            int spare = total - busy;
+            return spare < minSpareThreads;
         }
     }
 
@@ -114,13 +147,19 @@ public class ThreadPool implements CustomExecutor {
         }
 
         mainLock.lock();
+
+        if (!areWorkersInitialized) {
+            areWorkersInitialized = true;
+            initializeWorkers();
+        }
+
         try {
             // Check if we need to create new threads
             int activeCount = activeThreads.get();
             int currentSize = currentPoolSize.get();
 
             if (activeCount >= currentSize && currentSize < maxPoolSize) {
-                createWorker();
+                createAndStartWorker();
                 logger.info("Created new worker thread. Current pool size: " + currentSize);
             }
 
@@ -138,8 +177,14 @@ public class ThreadPool implements CustomExecutor {
     }
 
     @Override
-    public <T> Future<T> submit(Callable<T> callable) {
-        return null;
+    public <T> Future<T> submit(Callable<T> task) {
+        if (task == null) {
+            throw new NullPointerException("Task cannot be null");
+        }
+
+        FutureTask<T> futureTask = new FutureTask<>(task);
+        execute(futureTask);
+        return futureTask;
     }
 
     private BlockingQueue<Runnable> getTargetQueue() {
@@ -148,14 +193,14 @@ public class ThreadPool implements CustomExecutor {
         return queues.get(index);
     }
 
-    private void initializePool() {
+    private void initializeWorkers() {
         for (int i = 0; i < corePoolSize; i++) {
-            createWorker();
+            createAndStartWorker();
         }
-        logger.info("Thread pool initialized with " + corePoolSize + " core threads");
+        logger.info("Thread pool started with " + corePoolSize + " core threads");
     }
 
-    private void createWorker() {
+    private void createAndStartWorker() {
         BlockingQueue<Runnable> queue = new LinkedBlockingQueue<>(queueSize);
         queues.add(queue);
         Worker worker = new Worker(queue);
@@ -167,10 +212,8 @@ public class ThreadPool implements CustomExecutor {
 
     @Override
     public void shutdown() {
-        mainLock.lock();
         isShutdown = true;
         logger.info("Thread pool shut down");
-        mainLock.unlock();
     }
 
     @Override
@@ -181,7 +224,7 @@ public class ThreadPool implements CustomExecutor {
             for (Worker worker : workers) {
                 worker.interrupt();
             }
-            logger.info("Thread pool shutdown interruption initiated");
+            logger.info("Thread pool shut down, workers forcibly terminated");
         } finally {
             mainLock.unlock();
         }
