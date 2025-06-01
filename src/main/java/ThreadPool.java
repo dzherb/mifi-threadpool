@@ -168,19 +168,22 @@ public class ThreadPool implements CustomExecutor {
     @Override
     public void shutdown() {
         mainLock.lock();
+        isShutdown = true;
+        logger.info("Thread pool shut down");
+        mainLock.unlock();
+    }
+
+    @Override
+    public void shutdownNow() {
+        mainLock.lock();
         try {
             isShutdown = true;
             for (Worker worker : workers) {
                 worker.interrupt();
             }
-            logger.info("Thread pool shutdown initiated");
+            logger.info("Thread pool shutdown interruption initiated");
         } finally {
             mainLock.unlock();
         }
-    }
-
-    @Override
-    public void shutdownNow() {
-
     }
 }
