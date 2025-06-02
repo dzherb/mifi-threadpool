@@ -166,7 +166,6 @@ public class CustomThreadPool implements CustomExecutor {
                 logger.info("Created new worker thread. Current pool size: " + currentSize);
             }
 
-            // Find the least loaded queue
             BlockingQueue<Runnable> targetQueue = getTargetQueue();
 
             if (!targetQueue.offer(task)) {

@@ -3,28 +3,29 @@ package benchmarks;
 import pool.CustomThreadPool;
 
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExecutorBenchmark {
     private final Executor executor;
     private static final int TOTAL_TASKS = 100;
     private static final int TASK_TIME_IN_MS = 10;
+    private final AtomicInteger completedTasks = new AtomicInteger(0);
 
     ExecutorBenchmark(Executor executor) {
         this.executor = executor;
     }
 
     public void benchmark() {
-        try {
-            log("Starting benchmark for " + executor.getClass().getName());
+        completedTasks.set(0);
+        log("Starting benchmark for " + executor.getClass().getName());
 
-            int rejected = 0;
+        try {
             long startTime = System.currentTimeMillis();
 
             for (int i = 1; i <= TOTAL_TASKS; i++) {
                 try {
                     executor.execute(new WorkerTask());
-                } catch (RejectedExecutionException e) {
-                    rejected++;
+                } catch (RejectedExecutionException _) {
                 }
             }
 
@@ -45,10 +46,9 @@ public class ExecutorBenchmark {
 
             long endTime = System.currentTimeMillis();
 
-            int executed = TOTAL_TASKS - rejected;
             log("Total time: %d".formatted(endTime - startTime));
-            log("Completed tasks: %d".formatted(executed));
-            log("Rejected tasks: %d".formatted(rejected));
+            log("Completed tasks: %d".formatted(completedTasks.get()));
+            log("Rejected tasks: %d".formatted(TOTAL_TASKS - completedTasks.get()));
             log("------------------\n");
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -63,6 +63,8 @@ public class ExecutorBenchmark {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+
+            completedTasks.incrementAndGet();
         }
     }
 
