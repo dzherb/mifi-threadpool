@@ -1,5 +1,6 @@
 package pool;
 
+import java.util.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -229,6 +230,22 @@ public class CustomThreadPool implements CustomExecutor {
             logger.info("Thread pool shut down, workers forcibly terminated");
         } finally {
             mainLock.unlock();
+        }
+    }
+
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        long deadline = System.nanoTime() + unit.toNanos(timeout);
+        while (true) {
+            boolean done;
+            mainLock.lock();
+            try {
+                done = (activeThreads.get() == 0 && queues.stream().allMatch(Collection::isEmpty));
+            } finally {
+                mainLock.unlock();
+            }
+            if (done) return true;
+            if (System.nanoTime() >= deadline) return false;
+            Thread.sleep(50);
         }
     }
 }
