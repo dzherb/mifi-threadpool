@@ -7,6 +7,7 @@ import java.util.concurrent.*;
 public class ExecutorBenchmark {
     private final Executor executor;
     private static final int TOTAL_TASKS = 100;
+    private static final int TASK_TIME_IN_MS = 10;
 
     ExecutorBenchmark(Executor executor) {
         this.executor = executor;
@@ -58,7 +59,7 @@ public class ExecutorBenchmark {
         @Override
         public void run() {
             try {
-                Thread.sleep(10);
+                Thread.sleep(TASK_TIME_IN_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
